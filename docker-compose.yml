@@ -1,0 +1,52 @@
+version: '3'
+
+services:
+  db:
+    image: postgres
+    volumes:
+      - /var/lib/postgresql
+    ports:
+      - 5432:5432
+
+  web:
+    image: "${CI_REGISTRY_IMAGE-local}/app:${CI_COMMIT_SHORT_SHA-local}"
+    build: .
+    command: bash -c "cron && bundle exec rails s -p 3000 -b '0.0.0.0'"
+    env_file:
+      - .env
+    # volumes:
+    #   - .:/app
+    links:
+      - db
+      - redis
+
+  nginx:
+    image: "${CI_REGISTRY_IMAGE-local}/nginx:${CI_COMMIT_SHORT_SHA-local}"
+    build:
+      context: .
+      dockerfile: Dockerfile.nginx
+    ports:
+      - 80:80
+    links:
+      - web
+
+  redis:
+    image: redis:5.0-alpine
+    command: redis-server --appendonly yes
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+    volumes:
+      - redis:/data
+
+  sidekiq:
+    image: "${CI_REGISTRY_IMAGE-local}/sidekiq:${CI_COMMIT_SHORT_SHA-local}"
+    build: .
+    env_file:
+      - .env
+    links:
+      - redis
+    command: bash -c "bundle exec sidekiq -c 2"
+
+volumes:
+  redis:
+  postgres:

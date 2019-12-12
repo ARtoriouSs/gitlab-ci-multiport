@@ -1,0 +1,62 @@
+stages:
+  - build
+  # - test
+  - deploy
+
+build:
+  stage: build
+  image:
+    name: docker/compose:1.21.2
+    entrypoint: ["/bin/sh", "-c"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+  services:
+    - docker:dind
+  script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    # fill .env with variables defined on GitLab
+    - env | grep -E 'DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|APP_HOST' > .env
+    - docker-compose build
+    - docker-compose push
+
+# test:
+#   stage: test
+#   script: echo "testing... (no)"
+
+deploy-production:
+  stage: deploy
+  # only:
+  #   - master
+  image: alpine:latest
+  before_script:
+    - apk update && apk add --no-cache openssh-client
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+    - chmod 400 ~/.ssh/id_rsa
+    - ssh-add ~/.ssh/id_rsa
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+  script:
+    - env | grep -E 'CI_REGISTRY_IMAGE|CI_COMMIT_SHORT_SHA|DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|APP_HOST' > .env
+    - scp docker-compose.yml ubuntu@$APP_HOST:~/reports-control-apps/production
+    - scp .env ubuntu@$APP_HOST:~/reports-control-apps/production
+    - ssh -t ubuntu@$APP_HOST "docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY && cd reports-control-apps/production && docker-compose pull && docker-compose up -d"
+
+# deploy-additional-port:
+#   stage: deploy
+#   only:
+#     - dev
+#   image: alpine:latest
+#   before_script:
+#     - apk update && apk add --no-cache openssh-client
+#     - eval $(ssh-agent -s)
+#     - mkdir -p ~/.ssh
+#     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+#     - chmod 400 ~/.ssh/id_rsa
+#     - ssh-add ~/.ssh/id_rsa
+#     - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+#   script:
+#     - env | grep -E 'CI_REGISTRY_IMAGE|CI_COMMIT_SHORT_SHA|DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|APP_HOST' > .env
+#     - scp docker-compose.yml ubuntu@$APP_HOST:~/reports-control-apps/production
+#     - scp .env ubuntu@$APP_HOST:~/reports-control-apps/production
+#     - ssh -t ubuntu@$APP_HOST "docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY && cd reports-control-apps/production && docker-compose pull && docker-compose up -d"
