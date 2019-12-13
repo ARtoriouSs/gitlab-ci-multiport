@@ -4,7 +4,7 @@
 
 This is just some files from one of the projects. This is not for direct use and even not the ideal version of the task it had to decide, I just hope it will be helpful for somebody who sort out with similar problem or with GitLab CI in general. 
 
-# What is it?
+## What is it?
 
 Here is devOps files for application with Ruby on Rails API and Vue.js frontend (not a big deal for the process, can be React or some other framework as well). It assumes frontend files to be placed in `frontend/` directory, and Rails API to be in a project root. It designed for using GitLab registry to store docker images.
 
