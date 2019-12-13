@@ -1,62 +1,160 @@
 stages:
   - build
-  # - test
   - deploy
 
-build:
+build-master:
   stage: build
+  only:
+    - master
   image:
     name: docker/compose:1.21.2
     entrypoint: ["/bin/sh", "-c"]
   variables:
     DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    NGINX_PORT: "80:80"
+    DATABASE_PORT: "5433:5432"
+    APP_HOST_PORT: "${APP_HOST}:80"
   services:
-    - docker:dind
+    - docker:18.09-dind
   script:
     - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
-    # fill .env with variables defined on GitLab
-    - env | grep -E 'DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|APP_HOST' > .env
+    - env | grep -E 'DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|NGINX_PORT|APP_HOST|DATABASE_PORT|APP_HOST_PORT' > .env
     - docker-compose build
     - docker-compose push
 
-# test:
-#   stage: test
-#   script: echo "testing... (no)"
+build-dev:
+  stage: build
+  only:
+    - dev
+  image:
+    name: docker/compose:1.21.2
+    entrypoint: ["/bin/sh", "-c"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+    NGINX_PORT: "81:80"
+    DATABASE_PORT: "5434:5432"
+    APP_HOST_PORT: "${APP_HOST}:81"
+  services:
+    - docker:18.09-dind
+  script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - env | grep -E 'DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|NGINX_PORT|APP_HOST|DATABASE_PORT|APP_HOST_PORT' > .env
+    - docker-compose build
+    - docker-compose push
 
+build-branches:
+  stage: build
+  except:
+    - dev
+    - master
+  image:
+    name: docker/compose:1.21.2
+    entrypoint: ["/bin/sh", "-c"]
+  before_script:
+    - export RANDOM_PORT=$(shuf -i 82-89 -n 1)
+    - export RANDOM_PORT_DB=$(shuf -i 5434-5439 -n 1)
+    - export NGINX_PORT="${RANDOM_PORT}:80"
+    - export DATABASE_PORT="${RANDOM_PORT_DB}:5432"
+    - export APP_HOST_PORT="${APP_HOST}:${RANDOM_PORT}"
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  services:
+    - docker:18.09-dind
+  script:
+    - docker login -u gitlab-ci-token -p $CI_JOB_TOKEN $CI_REGISTRY
+    - env | grep -E 'DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|NGINX_PORT|APP_HOST|DATABASE_PORT|APP_HOST_PORT|RANDOM_PORT|RANDOM_PORT_DB' > .env
+    - docker-compose build
+    - docker-compose push
 deploy-production:
   stage: deploy
-  # only:
-  #   - master
+  only:
+    - master
   image: alpine:latest
   before_script:
+    - hostname
+    - pwd
+    - whoami
     - apk update && apk add --no-cache openssh-client
     - eval $(ssh-agent -s)
     - mkdir -p ~/.ssh
-    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-    - chmod 400 ~/.ssh/id_rsa
-    - ssh-add ~/.ssh/id_rsa
+    - echo "$SSH_PRIVATE_KEY" | ssh-add -
     - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+  variables:
+    NGINX_PORT: "80:80"
+    DATABASE_PORT: "5433:5432"
+    APP_HOST_PORT: "${APP_HOST}:80"
   script:
-    - env | grep -E 'CI_REGISTRY_IMAGE|CI_COMMIT_SHORT_SHA|DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|APP_HOST' > .env
+    - env | grep -E 'CI_REGISTRY_IMAGE|CI_COMMIT_SHORT_SHA|DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|APP_HOST|NGINX_PORT|DATABASE_PORT|APP_HOST_PORT' > .env
+    - chmod 744 docker-compose.yml
+    - chmod 744 .env
+    - ssh -T ubuntu@$APP_HOST "mkdir -p ~/apps/production"
+    - ssh -T ubuntu@$APP_HOST "chmod 777 ~/apps/production"
     - scp docker-compose.yml ubuntu@$APP_HOST:~/reports-control-apps/production
     - scp .env ubuntu@$APP_HOST:~/reports-control-apps/production
-    - ssh -t ubuntu@$APP_HOST "docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY && cd reports-control-apps/production && docker-compose pull && docker-compose up -d"
+    - ssh -T ubuntu@$APP_HOST "docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY && cd apps/production && docker-compose pull && docker-compose up -d"
+    - ssh -T ubuntu@$APP_HOST "cd apps/production && docker-compose run --rm web rake db:create db:migrate db:seed && docker-compose up -d"
 
-# deploy-additional-port:
-#   stage: deploy
-#   only:
-#     - dev
-#   image: alpine:latest
-#   before_script:
-#     - apk update && apk add --no-cache openssh-client
-#     - eval $(ssh-agent -s)
-#     - mkdir -p ~/.ssh
-#     - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
-#     - chmod 400 ~/.ssh/id_rsa
-#     - ssh-add ~/.ssh/id_rsa
-#     - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
-#   script:
-#     - env | grep -E 'CI_REGISTRY_IMAGE|CI_COMMIT_SHORT_SHA|DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|APP_HOST' > .env
-#     - scp docker-compose.yml ubuntu@$APP_HOST:~/reports-control-apps/production
-#     - scp .env ubuntu@$APP_HOST:~/reports-control-apps/production
-#     - ssh -t ubuntu@$APP_HOST "docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY && cd reports-control-apps/production && docker-compose pull && docker-compose up -d"
+
+deploy-development:
+  stage: deploy
+  only:
+    - dev
+  image: alpine:latest
+  before_script:
+    - hostname
+    - pwd
+    - whoami
+    - apk update && apk add --no-cache openssh-client
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | ssh-add -
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+  variables:
+    NGINX_PORT: "81:80"
+    DATABASE_PORT: "5434:5432"
+    APP_HOST_PORT: "${APP_HOST}:81"
+  script:
+    - env | grep -E 'CI_REGISTRY_IMAGE|CI_COMMIT_SHORT_SHA|DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|APP_HOST|NGINX_PORT|DATABASE_PORT|APP_HOST_PORT' > .env
+    - chmod 744 docker-compose.yml
+    - chmod 744 .env
+    - ssh -T ubuntu@$APP_HOST "mkdir -p ~/apps/dev"
+    - ssh -T ubuntu@$APP_HOST "chmod 777 ~/apps/dev"
+    - scp docker-compose.yml ubuntu@$APP_HOST:~/reports-control-apps/dev
+    - scp .env ubuntu@$APP_HOST:~/reports-control-apps/dev
+    - ssh -T ubuntu@$APP_HOST "docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY && cd reports-control-apps/dev && docker-compose pull && docker-compose up -d"
+    - ssh -T ubuntu@$APP_HOST "cd apps/dev && docker-compose run --rm web rake db:create db:migrate db:seed && docker-compose up -d"
+
+deploy-branches:
+  stage: deploy
+  except:
+    - dev
+    - master
+  image: alpine:latest
+  before_script:
+    - hostname
+    - pwd
+    - whoami
+    - apk update && apk add --no-cache openssh-client
+    - eval $(ssh-agent -s)
+    - mkdir -p ~/.ssh
+    - echo "$SSH_PRIVATE_KEY" | ssh-add -
+    - echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config
+    - export RANDOM_PORT=$(shuf -i 82-89 -n 1)
+    - export RANDOM_PORT_DB=$(shuf -i 5434-5439 -n 1)
+    - export NGINX_PORT="${RANDOM_PORT}:80"
+    - export DATABASE_PORT="${RANDOM_PORT_DB}:5432"
+    - export APP_HOST_PORT="${APP_HOST}:${RANDOM_PORT}"
+
+  script:
+    - env | grep -E 'CI_REGISTRY_IMAGE|CI_COMMIT_SHORT_SHA|DB_|REDIS_URL|RACK_ENV|RAILS_|SECRET_KEY_BASE|SMTP_|GMAIL_|VUE_APP_BASE_HOST|APP_HOST|NGINX_PORT|DATABASE_PORT|APP_HOST_PORT' > .env
+    - chmod 744 docker-compose.yml
+    - chmod 744 .env
+    - ssh -T ubuntu@$APP_HOST "mkdir -p ~/apps/\"$CI_COMMIT_REF_NAME/\""
+    - ssh -T ubuntu@$APP_HOST "chmod 777 ~/apps/\"$CI_COMMIT_REF_NAME\""
+    - scp docker-compose.yml ubuntu@$APP_HOST:~/reports-control-apps/$CI_COMMIT_REF_NAME
+    - scp .env ubuntu@$APP_HOST:~/reports-control-apps/$CI_COMMIT_REF_NAME
+    - ssh -T ubuntu@$APP_HOST "docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY && cd reports-control-apps/$CI_COMMIT_REF_NAME && docker-compose pull && docker-compose up -d"
+    - ssh -T ubuntu@$APP_HOST "cd apps/\"$CI_COMMIT_REF_NAME/\" && docker-compose run --rm web rake db:create db:migrate db:seed && docker-compose up -d"
