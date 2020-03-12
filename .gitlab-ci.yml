@@ -97,7 +97,6 @@ deploy-production:
     - ssh -T ubuntu@$APP_HOST "docker login -u $CI_DEPLOY_USER -p $CI_DEPLOY_PASSWORD $CI_REGISTRY && cd apps/production && docker-compose pull && docker-compose up -d"
     - ssh -T ubuntu@$APP_HOST "cd apps/production && docker-compose run --rm web rake db:create db:migrate db:seed && docker-compose up -d"
 
-
 deploy-development:
   stage: deploy
   only:
