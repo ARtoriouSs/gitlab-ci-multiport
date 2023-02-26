@@ -2,7 +2,7 @@
 
 ## Important
 
-This is just some files from one of the projects. This is not for direct use and even not the ideal version of the task it had to decide, I just hope it will be helpful for somebody who sort out with similar problem or with GitLab CI in general. 
+This is just some files from one of the projects. This is not for direct use and even not the ideal solution for the problem it was intended to solve, I just hope it can be helpful for somebody who has a similar problem or with GitLab CI in general. 
 
 ## What is it?
 
@@ -10,4 +10,4 @@ Here is devOps files for application with Ruby on Rails API and Vue.js frontend 
 
 It will automatically deploy pushes to the master branch on the main port (80), pushes to the dev branch on additional port (81), and all other branches on one of the additional ports (82-89) in order to always have working backup-application. It also can be a default production-staging schema.
 
-There are also some documentation about deployment process in [docs](docs/) folder (thanks to [Stas](https://github.com/stan1slaw)).
+There are also some extracted documentation about deployment process in [docs](docs/) folder (thanks to [Stanislav](https://github.com/stan1slaw) for writing it).
